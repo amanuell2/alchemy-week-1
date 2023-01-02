@@ -1,8 +1,9 @@
 import { useState } from "react";
 import server from "./server";
-import { utf8ToBytes } from "ethereum-cryptography/utils"
+import { sha256 } from "ethereum-cryptography/sha256"
+import { utf8ToBytes, toHex } from "ethereum-cryptography/utils"
 import { keccak256 } from "ethereum-cryptography/keccak"
-import { sign } from "ethereum-cryptography/secp256k1"
+import {sign} from "ethereum-cryptography/secp256k1"
 
 function Transfer({ address, setBalance }) {
   const [sendAmount, setSendAmount] = useState("");
@@ -13,31 +14,42 @@ function Transfer({ address, setBalance }) {
   async function transfer(evt) {
     evt.preventDefault();
 
-    const signedTransfer = await signTransfer();
+    const message = {
+      amount :parseInt(sendAmount),
+      recipient
+    }
+
+    const signature = await _sign(message);
+
+    const transaction = {
+      message,
+      signature,
+    };
 
     try {
       const {
         data: { balance },
-      } = await server.post(`send`, {
-        payload: signedTransfer,
-        recipient,
-      });
+      } = await server.post(`send`, 
+        transaction
+      );
       setBalance(balance);
     } catch (ex) {
       alert(ex.response.data.message);
     }
   }
 
-  const hashMessage = () => {
-    const amountBytes = utf8ToBytes(sendAmount)
-    const hashAmount = keccak256(amountBytes)
-    return hashAmount;
-  }
+    const hashMessage = (message) => keccak256(Uint8Array.from(message));
 
-  const signTransfer = () => {
-    const hashedMessage = hashMessage();
-    return sign(hashedMessage, address, { recovered: true })
-  }
+    const _sign = async (message) => {
+      const privateKey = address;
+      const hash = hashMessage(message);
+      const [signature, recoveryBit] = await sign(hash, privateKey, {
+        recovered: true,
+      });
+
+      const fullSignature = new Uint8Array([recoveryBit, ...signature]);
+      return toHex(fullSignature);
+    };
 
   return (
     <form className="container transfer" onSubmit={transfer}>
